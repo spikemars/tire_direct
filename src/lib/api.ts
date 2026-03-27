@@ -110,25 +110,29 @@ export async function createCheckout(input: CreateCheckoutInput): Promise<Checko
   })
 }
 
-// ─── SKU catalog (mirrors backend catalog.ts) ─────────────────────────────────
-// Must stay in sync with the server-side catalog.
-// Used by Home.tsx to map product selections → API SKUs.
+// ─── SKU catalog (must match backend catalog.ts) ────────────────────────────────
+// Maps from brand+sizepart → API SKU
+// Key format: "BRAND-WIDTH/PROFILERIM" e.g. "Continental-255/40R19"
 
 export const SKU_CATALOG: Record<string, string> = {
   // Continental
-  'CONTINENTAL-255-40R19': 'CONTINENTAL-255-40R19',
-  // Michellin
-  'MICHELIN-245-45R18': 'MICHELIN-245-45R18',
-  // Bridgestone
-  'BRIDGESTONE-265-65R17': 'BRIDGESTONE-265-65R17',
+  'Continental-255/40R19': 'CONTINENTAL-255-40R19',
+  // Michelin
+  'Michelin-235/35R19': 'MICHELIN-235-35R19',
+  // Prinx
+  'Prinx-225/45R18': 'PRINX-225-45R18',
 }
 
 /**
- * Map a product's brand+size key to an API SKU.
- * Falls back to the key itself if not found.
+ * Map a product's brand + size (without load/speed rating) → API SKU.
+ * Input size like "255/40R19 100Y" → strips "100Y" → "255/40R19"
+ * Falls back to the base key if not found.
  */
 export function toSku(brand: string, size: string): string {
-  const key = `${brand.toUpperCase()}-${size.toUpperCase().replace(/\s/g, '').replace(/\//, '-')}`
+  // Strip speed rating (e.g. "100Y", "91W") and whitespace
+  const sizeBase = size.replace(/\s+(?:[0-9]{2,3}[A-Z]|[0-9]{3,4}][A-Z])$/i, '').trim()
+  // e.g. "255/40R19 100Y" → "255/40R19"
+  const key = `${brand}-${sizeBase}` // e.g. "Continental-255/40R19"
   return SKU_CATALOG[key] ?? key
 }
 
