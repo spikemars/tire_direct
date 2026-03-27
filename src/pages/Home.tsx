@@ -1,18 +1,42 @@
-/**
- * Home 頁面：工程級輪胎選配系統主介面。
- * 包含產品矩陣、篩選器、右側即時報價面板與落單流程覆層入口。
- */
-
 import { useEffect, useRef, useState } from "react";
 import OrderFlow from "../components/OrderFlow";
 import OrderConfirmation from "../components/OrderConfirmation";
 import type { OrderRecord } from "../lib/generateOrderPDF";
 
 /**
- * 單一輪胎產品資料結構。
+ * Cloudflare Worker API base。
+ * Home 頁面直接從後端商品目錄讀取資料，避免前端自行拼接 SKU。
+ */
+const API_BASE = "https://tire-direct-api.paxjustice.workers.dev";
+
+/**
+ * 後端 /api/products 返回的單一商品結構。
+ */
+interface CatalogApiProduct {
+  sku: string;
+  brand: string;
+  model: string;
+  specification: string;
+  unitPrice: number; // cents HKD
+}
+
+interface ProductsApiResponse {
+  success: boolean;
+  data?: {
+    products: CatalogApiProduct[];
+  };
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * 前端頁面使用的輪胎產品資料結構。
+ * 注意：sku 必須直接來自後端，不能由前端推導。
  */
 interface TyreProduct {
-  id: number;
+  sku: string;
   badge: string;
   badgeTone: "ev" | "performance";
   brand: string;
@@ -27,56 +51,68 @@ interface TyreProduct {
   euGrades: { dry: string; wet: string; noise: string };
 }
 
-/**
- * 模擬後端返回的產品清單。
- */
-const PRODUCTS: TyreProduct[] = [
-  {
-    id: 1,
-    badge: "EV 專用",
-    badgeTone: "ev",
-    brand: "Continental",
-    name: "ULTRACONTACT UC7 EV",
-    size: "255/40R19 100Y",
-    originLabel: "歐盟認證 · 低滾動阻力",
-    location: "中國",
-    year: "2025",
-    tags: ["EV 平台認證", "低噪音", "長里程"],
-    oldPrice: "HK$ 1,480",
-    price: "HK$ 1,280",
-    euGrades: { dry: "A", wet: "A", noise: "68dB" },
-  },
-  {
-    id: 2,
-    badge: "高性能",
-    badgeTone: "performance",
-    brand: "Michelin",
-    name: "PILOT SPORT 5",
-    size: "235/35R19 91Y",
-    originLabel: "歐盟認證 · 高性能街道",
-    location: "西班牙",
-    year: "2024",
-    tags: ["高抓地", "濕地強化", "靈敏轉向"],
-    oldPrice: "HK$ 1,980",
-    price: "HK$ 1,690",
-    euGrades: { dry: "A", wet: "B", noise: "71dB" },
-  },
-  {
-    id: 3,
-    badge: "EV 專用",
-    badgeTone: "ev",
-    brand: "Prinx",
-    name: "XLAB ECO-EV",
-    size: "225/45R18 95W",
-    originLabel: "2025 新胎 · 高性價比",
-    location: "中國",
-    year: "2025",
-    tags: ["EV 專用", "靜音強化", "節能配方"],
-    oldPrice: "HK$ 980",
-    price: "HK$ 820",
-    euGrades: { dry: "B", wet: "A", noise: "69dB" },
-  },
-];
+function centsToDisplay(cents: number): string {
+  return `HK$ ${(cents / 100).toLocaleString("en-US")}`;
+}
+
+function buildOldPrice(cents: number): string {
+  return centsToDisplay(Math.round(cents * 1.15));
+}
+
+function inferBadgeTone(product: CatalogApiProduct): "ev" | "performance" {
+  const text = `${product.model} ${product.specification}`.toUpperCase();
+  return text.includes("EV") ? "ev" : "performance";
+}
+
+function inferBadge(product: CatalogApiProduct): string {
+  return inferBadgeTone(product) === "ev" ? "EV 專用" : "高性能";
+}
+
+function inferTags(product: CatalogApiProduct): string[] {
+  return inferBadgeTone(product) === "ev"
+    ? ["EV 平台認證", "低噪音", "長里程"]
+    : ["高抓地", "濕地表現", "即時同步"];
+}
+
+function inferEuGrades(product: CatalogApiProduct): {
+  dry: string;
+  wet: string;
+  noise: string;
+} {
+  const tone = inferBadgeTone(product);
+  return tone === "ev"
+    ? { dry: "B", wet: "A", noise: "69dB" }
+    : { dry: "A", wet: "B", noise: "71dB" };
+}
+
+function toTyreProduct(product: CatalogApiProduct): TyreProduct {
+  return {
+    sku: product.sku,
+    badge: inferBadge(product),
+    badgeTone: inferBadgeTone(product),
+    brand: product.brand,
+    name: product.model,
+    size: product.specification,
+    originLabel: "後端目錄同步",
+    location: "Catalog",
+    year: "最新",
+    tags: inferTags(product),
+    oldPrice: buildOldPrice(product.unitPrice),
+    price: centsToDisplay(product.unitPrice),
+    euGrades: inferEuGrades(product),
+  };
+}
+
+async function fetchProducts(): Promise<TyreProduct[]> {
+  const res = await fetch(`${API_BASE}/api/products`);
+  const json = (await res.json()) as ProductsApiResponse;
+
+  if (!res.ok || !json.success || !json.data) {
+    throw new Error(json.error?.message ?? `載入商品失敗 (${res.status})`);
+  }
+
+  return json.data.products.map(toTyreProduct);
+}
 
 /**
  * 規格格子：顯示單一 label / value。
@@ -87,24 +123,13 @@ function SpecCell({ label, value }: { label: string; value: string }) {
       <span className="text-[11px] uppercase tracking-[0.18em] text-gray-400">
         {label}
       </span>
-      <span className="text-[13px] font-medium text-slate-900">
-        {value}
-      </span>
+      <span className="text-[13px] font-medium text-slate-900">{value}</span>
     </div>
   );
 }
 
 /**
- * 單一產品卡片（全新結構版本）。
- * 結構：
- * - 上端 3px 色條
- * - Header：名稱 + EU Rating Badge
- * - Divider
- * - 規格 2 欄 Grid
- * - Divider
- * - 價格區（最強視覺）
- * - Divider
- * - 動作列
+ * 單一產品卡片。
  */
 function ProductCard({
   product,
@@ -130,20 +155,16 @@ function ProductCard({
         stroke="currentColor"
         strokeWidth="2"
       >
-        <path
-          d="M3 8.5 6.5 12 13 4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M3 8.5 6.5 12 13 4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   ) : null;
 
   const specItems: Array<{ label: string; value: string }> = [
+    { label: "SKU", value: product.sku },
     { label: "SIZE", value: product.size },
     { label: "TYPE", value: product.badge },
-    { label: "BATCH", value: `${product.location} · ${product.year}` },
-    { label: "NOTE", value: product.originLabel },
+    { label: "SOURCE", value: product.originLabel },
   ];
 
   return (
@@ -151,18 +172,11 @@ function ProductCard({
       className={`relative flex cursor-pointer flex-col select-none transition-colors ${borderClasses}`}
       onClick={onSelect}
     >
-      {/* TOP STRIP 3px */}
-      <div
-        className={`h-[3px] w-full ${
-          isEV ? "bg-blue-500" : "bg-orange-500"
-        }`}
-      />
+      <div className={`h-[3px] w-full ${isEV ? "bg-blue-500" : "bg-orange-500"}`} />
 
       {checkIcon}
 
-      {/* CARD BODY (16px padding) */}
       <div className="flex flex-col gap-3 p-4">
-        {/* HEADER ROW */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-[0.18em] text-gray-400">
@@ -177,26 +191,21 @@ function ProductCard({
               EU Rating
             </span>
             <span className="inline-flex border border-gray-300 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-              Dry {product.euGrades.dry} · Wet {product.euGrades.wet} ·{" "}
-              {product.euGrades.noise}
+              Dry {product.euGrades.dry} · Wet {product.euGrades.wet} · {product.euGrades.noise}
             </span>
           </div>
         </div>
 
-        {/* DIVIDER */}
         <div className="border-t border-gray-200" />
 
-        {/* SPEC GRID 2 COLS */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           {specItems.map((item) => (
             <SpecCell key={item.label} label={item.label} value={item.value} />
           ))}
         </div>
 
-        {/* DIVIDER */}
         <div className="border-t border-gray-200" />
 
-        {/* PRICE BLOCK */}
         <div className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-[0.18em] text-gray-400">
             Price · Per Tyre
@@ -208,23 +217,18 @@ function ProductCard({
             <span className="text-[11px] text-gray-500">/ 條</span>
           </div>
           <div className="text-[11px] text-gray-500">
-            已含基本安裝與標準動平衡 · 原價{" "}
-            <span className="line-through">{product.oldPrice}</span>
+            已含基本安裝與標準動平衡 · 原價 <span className="line-through">{product.oldPrice}</span>
           </div>
         </div>
 
-        {/* DIVIDER */}
         <div className="border-t border-gray-200" />
 
-        {/* ACTION ROW */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-[0.18em] text-gray-400">
               Selection
             </span>
-            <span className="text-[11px] text-gray-600">
-              右側即時計算 4 條總價與定金 / 全額方案
-            </span>
+            <span className="text-[11px] text-gray-600">右側即時計算 4 條總價與定金 / 全額方案</span>
           </div>
           <button
             type="button"
@@ -246,9 +250,6 @@ function ProductCard({
   );
 }
 
-/**
- * 左側篩選條中小型 toggle 按鈕。
- */
 function FilterToggle({
   label,
   active,
@@ -274,9 +275,6 @@ function FilterToggle({
   );
 }
 
-/**
- * 右側報價面板：根據選中產品與付款模式實時計算金額。
- */
 function PricingPanel({
   product,
   payMode,
@@ -296,7 +294,6 @@ function PricingPanel({
 
   return (
     <aside className="flex flex-col border border-slate-700 bg-slate-900">
-      {/* PANEL HEADER */}
       <div className="flex items-center gap-2 border-b border-slate-700 bg-slate-950 px-4 py-3">
         <span className="text-[9px] font-bold uppercase tracking-[0.25em] text-blue-400">
           Pricing Output
@@ -322,7 +319,6 @@ function PricingPanel({
 
       <div className="flex flex-col gap-0 p-4">
         {!product ? (
-          // IDLE Skeleton
           <div className="flex flex-col gap-3">
             <div className="border border-slate-600 bg-slate-800 p-3">
               <div className="mb-2 text-[9px] uppercase tracking-[0.2em] text-slate-500">
@@ -348,10 +344,7 @@ function PricingPanel({
                 Breakdown
               </div>
               {["w-full", "w-3/4", "w-2/3"].map((w, i) => (
-                <div
-                  key={i}
-                  className={`mb-2 h-2.5 bg-slate-600 last:mb-0 ${w}`}
-                />
+                <div key={i} className={`mb-2 h-2.5 bg-slate-600 last:mb-0 ${w}`} />
               ))}
             </div>
 
@@ -368,23 +361,18 @@ function PricingPanel({
           </div>
         ) : (
           <>
-            {/* SELECTED PRODUCT SUMMARY */}
             <div className="border-l-[3px] border-blue-500 bg-slate-800 px-3 py-2">
               <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
                 Selected Unit
               </div>
-              <div className="mt-0.5 text-[12px] font-bold text-white">
-                {product.brand}
-              </div>
+              <div className="mt-0.5 text-[12px] font-bold text-white">{product.brand}</div>
               <div className="text-[10px] text-slate-400">{product.name}</div>
-              <div className="mt-1 text-[9px] text-slate-500">
-                {product.size} · ×4 條
-              </div>
+              <div className="mt-1 text-[9px] text-slate-500">{product.size} · ×4 條</div>
+              <div className="mt-1 text-[9px] text-slate-500">SKU · {product.sku}</div>
             </div>
 
             <div className="my-3 border-t border-slate-700" />
 
-            {/* PAYMENT MODE */}
             <div className="mb-2 text-[9px] uppercase tracking-[0.18em] text-slate-500">
               Payment Mode
             </div>
@@ -409,11 +397,7 @@ function PricingPanel({
                       ✓ ACTIVE
                     </span>
                   )}
-                  <span
-                    className={`font-bold ${
-                      payMode === key ? "text-blue-300" : "text-slate-300"
-                    }`}
-                  >
+                  <span className={`font-bold ${payMode === key ? "text-blue-300" : "text-slate-300"}`}>
                     {label}
                   </span>
                   <span className="text-[9px] text-slate-500">{sub}</span>
@@ -423,7 +407,6 @@ function PricingPanel({
 
             <div className="my-3 border-t border-slate-700" />
 
-            {/* BREAKDOWN */}
             <div className="mb-2 text-[9px] uppercase tracking-[0.18em] text-slate-500">
               Breakdown
             </div>
@@ -438,49 +421,36 @@ function PricingPanel({
                   className="flex items-center justify-between border-b border-slate-800 pb-2 last:border-b-0"
                 >
                   <span className="text-[10px] text-slate-500">{label}</span>
-                  <span className="text-[11px] font-semibold text-slate-200">
-                    {value}
-                  </span>
+                  <span className="text-[11px] font-semibold text-slate-200">{value}</span>
                 </div>
               ))}
             </div>
 
             <div className="my-3 border-t border-slate-600" />
 
-            {/* TOTAL */}
             {payMode === "full" ? (
               <div>
-                <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
-                  Total
-                </div>
+                <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">Total</div>
                 <div className="mt-1 text-[32px] font-black leading-none text-white">
                   HK$ {totalFull.toLocaleString()}
                 </div>
-                <div className="mt-1 text-[10px] text-slate-500">
-                  全額一次付清 · 含安裝
-                </div>
+                <div className="mt-1 text-[10px] text-slate-500">全額一次付清 · 含安裝</div>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
                 <div>
-                  <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">
-                    定金 (30%)
-                  </div>
+                  <div className="text-[9px] uppercase tracking-[0.18em] text-slate-500">定金 (30%)</div>
                   <div className="mt-1 text-[32px] font-black leading-none text-blue-400">
                     HK$ {deposit.toLocaleString()}
                   </div>
                 </div>
                 <div className="flex items-center justify-between border border-dashed border-slate-700 bg-slate-950 px-2 py-2">
-                  <span className="text-[10px] text-slate-500">
-                    安裝當日尾款
-                  </span>
+                  <span className="text-[10px] text-slate-500">安裝當日尾款</span>
                   <span className="text-[12px] font-bold text-slate-300">
                     HK$ {remaining.toLocaleString()}
                   </span>
                 </div>
-                <div className="text-[10px] text-slate-500">
-                  總計 HK$ {totalFull.toLocaleString()}
-                </div>
+                <div className="text-[10px] text-slate-500">總計 HK$ {totalFull.toLocaleString()}</div>
               </div>
             )}
 
@@ -503,9 +473,6 @@ function PricingPanel({
   );
 }
 
-/**
- * 左側 Control Panel：示意優先級 / 品牌 / 尺寸篩選。
- */
 function FiltersPanel({
   activePreset,
   setActivePreset,
@@ -556,9 +523,7 @@ function FiltersPanel({
                 <input type="checkbox" className="h-3 w-3 accent-blue-600" />
                 <span className="text-[11px] text-slate-800">{b}</span>
               </span>
-              <span className="text-[9px] text-gray-400">
-                {b === "Prinx" ? "Value" : "Premium"}
-              </span>
+              <span className="text-[9px] text-gray-400">{b === "Prinx" ? "Value" : "Premium"}</span>
             </label>
           ))}
         </div>
@@ -584,13 +549,9 @@ function FiltersPanel({
   );
 }
 
-/**
- * 頁面頂部 Hero：尺寸輸入 + 系統狀態 + 基本 KPI。
- */
 function Hero({ onSearch }: { onSearch: () => void }) {
   return (
     <header className="border border-gray-300 bg-white">
-      {/* TOP STATUS BAR */}
       <div className="flex items-center gap-3 border-b border-gray-200 bg-slate-900 px-4 py-1.5">
         <span className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 bg-emerald-400" />
@@ -598,13 +559,10 @@ function Hero({ onSearch }: { onSearch: () => void }) {
             System Online
           </span>
         </span>
-        <span className="ml-auto font-mono text-[9px] text-gray-600">
-          Console v1.3 · HK
-        </span>
+        <span className="ml-auto font-mono text-[9px] text-gray-600">Console v1.3 · HK</span>
       </div>
 
       <div className="grid grid-cols-1 gap-0 lg:grid-cols-[1fr_auto]">
-        {/* LEFT: TITLE & SEARCH */}
         <div className="border-r border-gray-200 p-5">
           <div className="mb-2 text-[9px] font-bold uppercase tracking-[0.3em] text-gray-400">
             Industrial Tyre Selection System
@@ -613,16 +571,13 @@ function Hero({ onSearch }: { onSearch: () => void }) {
             呔直達
             <span className="ml-2 text-blue-600">·</span>
             <br />
-            <span className="text-[22px] font-bold text-slate-700">
-              工程級輪胎選配系統
-            </span>
+            <span className="text-[22px] font-bold text-slate-700">工程級輪胎選配系統</span>
           </h1>
           <p className="mt-2 max-w-lg text-[11px] leading-relaxed text-gray-500">
             根據車呔尺寸、自選性能優先級及生產年份，輸出經工程師審核的輪胎方案矩陣。
-            所有數據按批次同步，優先顯示最新 EU 標籤與噪音數據。
+            所有數據按後端商品目錄同步，落單時直接使用真實 SKU。
           </p>
 
-          {/* SEARCH BAR */}
           <div className="mt-4 flex items-stretch gap-0">
             <div className="flex items-center border border-r-0 border-gray-400 bg-gray-50 px-3">
               <span className="whitespace-nowrap text-[9px] uppercase tracking-[0.15em] text-gray-500">
@@ -644,25 +599,18 @@ function Hero({ onSearch }: { onSearch: () => void }) {
           </div>
         </div>
 
-        {/* RIGHT: STATS */}
         <div className="grid grid-cols-3 lg:w-44 lg:grid-cols-1">
           {[
             { label: "Delivery", value: "3 Days", sub: "最快上門安裝" },
-            { label: "In Stock", value: "24+", sub: "適配方案在庫" },
+            { label: "In Stock", value: "Live", sub: "後端目錄同步" },
             { label: "Coverage", value: "全港", sub: "免費上門服務" },
           ].map(({ label, value, sub }, i) => (
             <div
               key={label}
-              className={`flex flex-col justify-center px-4 py-4 ${
-                i < 2 ? "border-b border-gray-200" : ""
-              }`}
+              className={`flex flex-col justify-center px-4 py-4 ${i < 2 ? "border-b border-gray-200" : ""}`}
             >
-              <div className="text-[9px] uppercase tracking-[0.2em] text-gray-400">
-                {label}
-              </div>
-              <div className="mt-1 text-[22px] font-black leading-none text-slate-950">
-                {value}
-              </div>
+              <div className="text-[9px] uppercase tracking-[0.2em] text-gray-400">{label}</div>
+              <div className="mt-1 text-[22px] font-black leading-none text-slate-950">{value}</div>
               <div className="mt-0.5 text-[9px] text-gray-500">{sub}</div>
             </div>
           ))}
@@ -672,18 +620,17 @@ function Hero({ onSearch }: { onSearch: () => void }) {
   );
 }
 
-/**
- * Home 主組件：組合 Hero、Filters、產品矩陣與 Pricing Panel，並掛載落單流程覆層。
- */
 export default function Home() {
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [products, setProducts] = useState<TyreProduct[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [selectedSku, setSelectedSku] = useState<string | null>(null);
   const [payMode, setPayMode] = useState<"deposit" | "full">("deposit");
   const [activePreset, setActivePreset] = useState("EV 優先");
   const [showOrderFlow, setShowOrderFlow] = useState(false);
   const [orderRecord, setOrderRecord] = useState<OrderRecord | null>(null);
   const listingRef = useRef<HTMLDivElement>(null);
 
-  // 引入 Font Awesome（部分 snippet 可能使用）
   useEffect(() => {
     const existing = document.getElementById("fa-cdn");
     if (existing) return;
@@ -696,33 +643,53 @@ export default function Home() {
     document.head.appendChild(link);
   }, []);
 
-  const selectedProduct = PRODUCTS.find((p) => p.id === selectedId) ?? null;
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadProducts() {
+      try {
+        setLoadingProducts(true);
+        setProductsError(null);
+        const data = await fetchProducts();
+        if (!mounted) return;
+        setProducts(data);
+      } catch (err) {
+        if (!mounted) return;
+        setProducts([]);
+        setProductsError(err instanceof Error ? err.message : "載入商品失敗");
+      } finally {
+        if (mounted) setLoadingProducts(false);
+      }
+    }
+
+    loadProducts();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedSku && !products.some((p) => p.sku === selectedSku)) {
+      setSelectedSku(null);
+    }
+  }, [products, selectedSku]);
+
+  const selectedProduct = products.find((p) => p.sku === selectedSku) ?? null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-900 antialiased">
       <div className="mx-auto max-w-7xl px-3 py-4 lg:px-4">
-        {/* HERO */}
-        <Hero
-          onSearch={() =>
-            listingRef.current?.scrollIntoView({ behavior: "smooth" })
-          }
-        />
+        <Hero onSearch={() => listingRef.current?.scrollIntoView({ behavior: "smooth" })} />
 
-        {/* MAIN 3-COL GRID */}
         <div
           ref={listingRef}
           className="mt-3 grid gap-3 lg:grid-cols-[200px_1fr_220px]"
           style={{ gap: "12px" }}
         >
-          {/* FILTERS */}
-          <FiltersPanel
-            activePreset={activePreset}
-            setActivePreset={setActivePreset}
-          />
+          <FiltersPanel activePreset={activePreset} setActivePreset={setActivePreset} />
 
-          {/* PRODUCT LISTING */}
           <section className="flex flex-col border border-gray-300 bg-white">
-            {/* LISTING HEADER */}
             <div className="flex items-center justify-between border-b border-gray-300 bg-gray-50 px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <span className="text-[9px] font-bold uppercase tracking-[0.22em] text-gray-500">
@@ -730,7 +697,7 @@ export default function Home() {
                 </span>
                 <span className="h-px w-8 bg-gray-300" />
                 <span className="text-[11px] font-semibold text-slate-800">
-                  {PRODUCTS.length} 套方案
+                  {loadingProducts ? "載入中..." : `${products.length} 套方案`}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 border border-gray-300 bg-white px-2 py-1">
@@ -742,43 +709,69 @@ export default function Home() {
               </div>
             </div>
 
-            {/* CARDS GRID */}
-            <div
-              className="grid flex-1 grid-cols-1 gap-0 p-0 md:grid-cols-3"
-              style={{ gap: "1px", background: "#1e293b" }}
-            >
-              {PRODUCTS.map((p) => (
-                <ProductCard
-                  key={p.id}
-                  product={p}
-                  isSelected={p.id === selectedId}
-                  onSelect={() =>
-                    setSelectedId(p.id === selectedId ? null : p.id)
-                  }
-                />
-              ))}
-            </div>
+            {loadingProducts ? (
+              <div className="grid flex-1 grid-cols-1 gap-0 p-0 md:grid-cols-3" style={{ gap: "1px", background: "#1e293b" }}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="border border-gray-300 bg-white p-4">
+                    <div className="mb-3 h-1 w-full bg-gray-200" />
+                    <div className="mb-2 h-3 w-1/3 bg-gray-200" />
+                    <div className="mb-4 h-5 w-2/3 bg-gray-300" />
+                    <div className="mb-4 grid grid-cols-2 gap-3">
+                      <div className="h-10 bg-gray-100" />
+                      <div className="h-10 bg-gray-100" />
+                      <div className="h-10 bg-gray-100" />
+                      <div className="h-10 bg-gray-100" />
+                    </div>
+                    <div className="mb-3 h-8 w-1/2 bg-gray-300" />
+                    <div className="h-8 w-1/3 bg-gray-200" />
+                  </div>
+                ))}
+              </div>
+            ) : productsError ? (
+              <div className="flex flex-1 items-center justify-center p-8">
+                <div className="w-full max-w-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-red-500">
+                    Product Load Error
+                  </div>
+                  <div className="mt-2 font-semibold">無法從後端載入商品目錄</div>
+                  <div className="mt-1 break-all text-[12px]">{productsError}</div>
+                  <div className="mt-3 text-[12px] text-red-600">
+                    先確認 Cloudflare Worker 已部署，並且 /api/products 可正常返回商品列表。
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid flex-1 grid-cols-1 gap-0 p-0 md:grid-cols-3" style={{ gap: "1px", background: "#1e293b" }}>
+                {products.map((p) => (
+                  <ProductCard
+                    key={p.sku}
+                    product={p}
+                    isSelected={p.sku === selectedSku}
+                    onSelect={() => setSelectedSku(p.sku === selectedSku ? null : p.sku)}
+                  />
+                ))}
+              </div>
+            )}
 
-            {/* FOOTER NOTE */}
             <div className="border-t border-gray-200 px-4 py-2 text-[9px] text-gray-400">
-              所有報價已含基本安裝及動平衡 · 數據按最新批次同步 · 如有疑問請
-              WhatsApp 查詢
+              所有報價已含基本安裝及動平衡 · 商品資料由後端目錄同步 · 落單使用真實 SKU
             </div>
           </section>
 
-          {/* PRICING PANEL */}
           <PricingPanel
             product={selectedProduct}
             payMode={payMode}
             setPayMode={setPayMode}
-            onOrderClick={() => setShowOrderFlow(true)}
+            onOrderClick={() => {
+              if (selectedProduct) setShowOrderFlow(true);
+            }}
           />
         </div>
 
-        {/* ORDER FLOW OVERLAY */}
         {showOrderFlow && selectedProduct && (
           <OrderFlow
             product={{
+              sku: selectedProduct.sku,
               brand: selectedProduct.brand,
               name: selectedProduct.name,
               size: selectedProduct.size,
@@ -794,13 +787,7 @@ export default function Home() {
           />
         )}
 
-        {/* ORDER CONFIRMATION OVERLAY */}
-        {orderRecord && (
-          <OrderConfirmation
-            order={orderRecord}
-            onClose={() => setOrderRecord(null)}
-          />
-        )}
+        {orderRecord && <OrderConfirmation order={orderRecord} onClose={() => setOrderRecord(null)} />}
       </div>
     </div>
   );
