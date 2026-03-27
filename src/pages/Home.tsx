@@ -783,6 +783,7 @@ export default function Home() {
               name: selectedProduct.name,
               size: selectedProduct.size,
               price: selectedProduct.price,
+              qty: 4,
             }}
             payMode={payMode}
             onClose={() => setShowOrderFlow(false)}
