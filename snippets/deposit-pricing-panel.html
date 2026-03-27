@@ -1,0 +1,77 @@
+<!-- Deposit / Pricing system panel - industrial dashboard style -->
+<section class="relative rounded-xl border border-gray-200 border-l-4 border-l-blue-600 bg-white px-4 py-3.5 text-xs text-gray-800 transition hover:border-blue-400 hover:shadow-md">
+  <!-- Top system row -->
+  <div class="flex gap-3">
+    <!-- Icon column -->
+    <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-full bg-gray-900 text-blue-300">
+      <i class="fa-solid fa-shield-halved text-sm"></i>
+    </div>
+
+    <!-- Text content -->
+    <div class="flex-1 space-y-1">
+      <!-- Label -->
+      <p class="text-[10px] uppercase tracking-[0.22em] text-gray-500">
+        Pricing Transparency
+      </p>
+
+      <!-- Main message -->
+      <p class="text-sm font-medium text-gray-800">
+        價格已包基本安裝費及動平衡，無任何隱藏收費。
+      </p>
+
+      <!-- Secondary explanation -->
+      <p class="text-[11px] text-gray-500">
+        包括呔胎拆裝、標準平衡配重、氣嘴檢查及安全扭力鎖緊。如需額外底盤調校或特殊規格服務，我們會先行報價，您確認後才會處理。
+      </p>
+    </div>
+  </div>
+
+  <!-- Payment mode cards -->
+  <div class="mt-4 space-y-2">
+    <!-- Option A: Deposit (selected example) -->
+    <label class="block cursor-pointer rounded-lg border border-blue-600 bg-blue-50 px-3 py-2.5 transition hover:border-blue-600 hover:bg-blue-50">
+      <div class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="payment-mode"
+          class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-blue-600 focus:ring-blue-500"
+          checked
+        />
+        <div class="flex-1 space-y-0.5">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-gray-900">
+              先付訂金：30% / 條
+            </span>
+          </div>
+          <p class="text-[11px] text-gray-600">
+            鎖定廠價與生產批次，餘額於上門安裝完成後當面結清。
+          </p>
+        </div>
+      </div>
+    </label>
+
+    <!-- Option B: Full payment -->
+    <label class="block cursor-pointer rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 transition hover:border-blue-400 hover:bg-blue-50/40">
+      <div class="flex items-start gap-3">
+        <input
+          type="radio"
+          name="payment-mode"
+          class="mt-0.5 h-3.5 w-3.5 border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div class="flex-1 space-y-0.5">
+          <span class="text-sm font-medium text-gray-900">
+            全額支付：Full Payment
+          </span>
+          <p class="text-[11px] text-gray-600">
+            適合公司 / 車隊帳務對賬，開立正式發票，並需預先完成付款流程。
+          </p>
+        </div>
+      </div>
+    </label>
+  </div>
+
+  <!-- Footnote -->
+  <p class="mt-3 text-[11px] text-gray-500">
+    以「先付訂金」方式下單後，剩餘尾款會於專車上門安裝完成、您親身驗收後才現場結清。流程全程透明，可 WhatsApp 取得電子安裝報告。
+  </p>
+</section>
